@@ -1,0 +1,23 @@
+{
+  "name": "divvy",
+  "private": true,
+  "version": "0.1.0",
+  "description": "divvy — split any bill, any way.",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c magenta,cyan \"npm run dev -w server\" \"npm run dev -w client\"",
+    "db:migrate": "npm run migrate -w server",
+    "db:local": "npm run db:local -w server",
+    "test": "npm test -w shared && npm test -w server",
+    "build": "npm run build -w client",
+    "start": "npm start -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
