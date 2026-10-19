@@ -158,7 +158,15 @@ export function SimpleView({
   const [dragBox, setDragBox] = useState(null); // { type: 'item'|'party', id, x, y, width }
   const [activeTapItemId, setActiveTapItemId] = useState(null);
   const [activeTapPartyId, setActiveTapPartyId] = useState(null);
+  const [expandedPartyDetails, setExpandedPartyDetails] = useState({});
   const suppressNextClickRef = useRef(false);
+
+  const togglePartyDetails = (partyId) => {
+    setExpandedPartyDetails((prev) => ({
+      ...prev,
+      [partyId]: !prev[partyId],
+    }));
+  };
 
   // Swipe gesture tracking (touch & pointer)
   const swipeStartRef = useRef({ x: 0, y: 0, time: 0, isInput: false });
@@ -1542,74 +1550,155 @@ export function SimpleView({
                       </div>
                     </div>
 
-                    {/* Assigned party chips showing 100%, 50%, 33.3%, etc. */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                    {/* Multi-colored bar chart / graph representing paying parties */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       {partyCount > 0 ? (
-                        assignedPartyIds.map((pid) => {
-                          const p = partiesMap.get(pid);
-                          const cents = itemSplit?.perParty?.[pid] || 0;
-                          return (
-                            <span
-                              key={pid}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                padding: '3px 10px',
-                                borderRadius: 'var(--radius-full)',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                                background: 'rgba(255, 255, 255, 0.06)',
-                                border: `1px solid ${p?.color || 'var(--border-medium)'}`,
-                              }}
-                            >
-                              <span
-                                style={{
-                                  width: '8px',
-                                  height: '8px',
-                                  borderRadius: '50%',
-                                  background: p?.color || 'var(--accent-coral)',
-                                }}
-                              />
-                              <span>{p?.name || 'Party'}</span>
-                              <span style={{ color: 'var(--accent-teal)', fontFamily: 'var(--font-mono)' }}>
-                                {equalPct}%
-                              </span>
-                              <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
-                                ({formatCents(cents)})
-                              </span>
-                              {!readOnly && (
-                                <button
-                                  type="button"
+                        <div>
+                          {/* Segmented Color Bar */}
+                          <div
+                            style={{
+                              display: 'flex',
+                              height: '24px',
+                              width: '100%',
+                              borderRadius: 'var(--radius-full)',
+                              overflow: 'hidden',
+                              background: 'rgba(255, 255, 255, 0.05)',
+                              boxShadow: 'inset 0 1px 3px rgba(0, 0, 0, 0.4)',
+                              border: '1px solid rgba(255, 255, 255, 0.1)',
+                            }}
+                          >
+                            {assignedPartyIds.map((pid, idx) => {
+                              const p = partiesMap.get(pid);
+                              const cents = itemSplit?.perParty?.[pid] || 0;
+                              const partyColor = p?.color || 'var(--accent-coral)';
+
+                              return (
+                                <div
+                                  key={pid}
                                   onClick={(e) => {
+                                    if (readOnly) return;
                                     e.stopPropagation();
                                     removePartyFromItemEqualShare(item.id, pid);
                                   }}
                                   style={{
-                                    background: 'transparent',
-                                    border: 'none',
-                                    color: 'var(--text-muted)',
-                                    cursor: 'pointer',
-                                    fontSize: '14px',
-                                    lineHeight: 1,
-                                    marginLeft: '2px',
+                                    flex: 1,
+                                    background: partyColor,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '5px',
+                                    padding: '0 8px',
+                                    cursor: readOnly ? 'default' : 'pointer',
+                                    borderRight:
+                                      idx < partyCount - 1 ? '1.5px solid rgba(0, 0, 0, 0.25)' : 'none',
+                                    transition: 'filter 0.15s ease',
+                                    position: 'relative',
+                                    userSelect: 'none',
                                   }}
-                                  title={`Remove ${p?.name || 'party'} from ${item.description}`}
+                                  title={`${p?.name || 'Party'}: ${equalPct}% (${formatCents(cents)}) — Click to remove`}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.filter = 'brightness(1.15)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.filter = 'none';
+                                  }}
                                 >
-                                  ×
-                                </button>
-                              )}
+                                  <span
+                                    style={{
+                                      color: '#ffffff',
+                                      fontSize: '11px',
+                                      fontWeight: 800,
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      textShadow: '0 1px 2px rgba(0, 0, 0, 0.6)',
+                                    }}
+                                  >
+                                    {partyCount <= 2
+                                      ? `${p?.name || 'Party'} ${equalPct}%`
+                                      : `${p?.name ? p.name.slice(0, 3).toUpperCase() : 'P'} ${equalPct}%`}
+                                  </span>
+                                  {!readOnly && (
+                                    <span
+                                      style={{
+                                        color: 'rgba(255, 255, 255, 0.8)',
+                                        fontSize: '13px',
+                                        fontWeight: 900,
+                                        lineHeight: 1,
+                                      }}
+                                    >
+                                      ×
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Micro-legend below bar */}
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              fontSize: '10px',
+                              color: 'var(--text-muted)',
+                              marginTop: '4px',
+                              padding: '0 4px',
+                            }}
+                          >
+                            <span>
+                              {assignedPartyIds.map((pid, idx) => {
+                                const p = partiesMap.get(pid);
+                                const cents = itemSplit?.perParty?.[pid] || 0;
+                                return (
+                                  <span key={pid} style={{ marginRight: '8px' }}>
+                                    <span
+                                      style={{
+                                        display: 'inline-block',
+                                        width: '6px',
+                                        height: '6px',
+                                        borderRadius: '50%',
+                                        background: p?.color || 'var(--accent-coral)',
+                                        marginRight: '4px',
+                                        verticalAlign: 'middle',
+                                      }}
+                                    />
+                                    <strong>{p?.name}:</strong> {formatCents(cents)}
+                                  </span>
+                                );
+                              })}
                             </span>
-                          );
-                        })
+                            {!readOnly && <span style={{ opacity: 0.7 }}>Click slice to remove</span>}
+                          </div>
+                        </div>
                       ) : (
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        <div
+                          style={{
+                            height: '24px',
+                            width: '100%',
+                            borderRadius: 'var(--radius-full)',
+                            border: isTapSelected
+                              ? '1px dashed var(--accent-coral)'
+                              : '1px dashed var(--border-medium)',
+                            background: isTapSelected
+                              ? 'rgba(242, 107, 91, 0.12)'
+                              : 'rgba(255, 255, 255, 0.02)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '11px',
+                            color: isTapSelected ? 'var(--accent-coral)' : 'var(--text-muted)',
+                            fontStyle: isTapSelected ? 'normal' : 'italic',
+                            fontWeight: isTapSelected ? 700 : 500,
+                          }}
+                        >
                           {isTapSelected
-                            ? '👉 Now tap a party on the right to assign this item'
+                            ? '👉 Now tap a party on the right to assign'
                             : dragPartiesToPrice
-                            ? 'Unassigned — drag a party to the price above, or drag this item to a party'
+                            ? 'Unassigned — drop party on price or drag item'
                             : 'Unassigned — drag to a party on the right'}
-                        </span>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1741,23 +1830,84 @@ export function SimpleView({
                       </div>
                     </div>
 
-                    {/* Assigned Items inside this Party */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: '6px',
-                        padding: '8px 10px',
-                        background: 'rgba(255, 255, 255, 0.02)',
-                        borderRadius: 'var(--radius-sm)',
-                        minHeight: '38px',
-                        alignItems: 'center',
-                      }}
-                    >
-                      {assignedItemsForParty.length > 0 ? (
-                        assignedItemsForParty.map((it) => {
+                    {/* Party Share of Bill Progress Bar */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div
+                        style={{
+                          height: '5px',
+                          background: 'rgba(255, 255, 255, 0.08)',
+                          borderRadius: 'var(--radius-full)',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <div
+                          style={{
+                            height: '100%',
+                            width: `${grandTotalCents > 0 ? Math.min(100, Math.round((totalOwedCents / grandTotalCents) * 100)) : 0}%`,
+                            background: party.color || 'var(--accent-coral)',
+                            borderRadius: 'var(--radius-full)',
+                            transition: 'width 0.3s ease',
+                          }}
+                        />
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          fontSize: '11px',
+                          color: 'var(--text-muted)',
+                        }}
+                      >
+                        <span>
+                          {grandTotalCents > 0
+                            ? `${Math.round((totalOwedCents / grandTotalCents) * 100)}% of total bill`
+                            : '0%'}
+                          {assignedItemsForParty.length > 0 &&
+                            ` • ${assignedItemsForParty.length} item${assignedItemsForParty.length === 1 ? '' : 's'}`}
+                        </span>
+
+                        {assignedItemsForParty.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              togglePartyDetails(party.id);
+                            }}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: 'var(--accent-teal)',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              padding: '0 4px',
+                            }}
+                          >
+                            {expandedPartyDetails[party.id] ? 'Hide items ▲' : 'Show items ▼'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Collapsible assigned item pills (clean & collapsed by default) */}
+                    {expandedPartyDetails[party.id] && assignedItemsForParty.length > 0 && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: '6px',
+                          padding: '8px 10px',
+                          background: 'rgba(255, 255, 255, 0.03)',
+                          border: '1px solid var(--border-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          animation: 'fadeIn 0.2s ease',
+                        }}
+                      >
+                        {assignedItemsForParty.map((it) => {
                           const pIds = getAssignedPartyIdsForItem(it.id);
-                          const pct = Math.round((1000 / pIds.length)) / 10;
+                          const pct = Math.round(1000 / pIds.length) / 10;
                           const shareCents = split?.items?.[it.id]?.perParty?.[party.id] || 0;
                           return (
                             <span
@@ -1766,8 +1916,8 @@ export function SimpleView({
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '6px',
-                                fontSize: '12px',
-                                padding: '3px 9px',
+                                fontSize: '11px',
+                                padding: '3px 8px',
                                 borderRadius: 'var(--radius-full)',
                                 background: 'var(--bg-surface)',
                                 border: '1px solid var(--border-medium)',
@@ -1777,7 +1927,7 @@ export function SimpleView({
                               <span style={{ color: 'var(--accent-teal)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
                                 {pct}%
                               </span>
-                              <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                              <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                                 ({formatCents(shareCents)})
                               </span>
                               {!readOnly && (
@@ -1802,13 +1952,22 @@ export function SimpleView({
                               )}
                             </span>
                           );
-                        })
-                      ) : (
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                          Drop items here to assign to {party.name}
-                        </span>
-                      )}
-                    </div>
+                        })}
+                      </div>
+                    )}
+
+                    {assignedItemsForParty.length === 0 && (
+                      <div
+                        style={{
+                          fontSize: '11px',
+                          color: 'var(--text-muted)',
+                          fontStyle: 'italic',
+                          padding: '2px 0',
+                        }}
+                      >
+                        Drop items here to assign to {party.name}
+                      </div>
+                    )}
 
                     {/* Settle Up / Mark Paid Footer */}
                     {totalOwedCents > 0 && (
@@ -1923,6 +2082,38 @@ export function SimpleView({
                 >
                   {formatCents(draggedItem.priceCents)}
                 </span>
+              </div>
+
+              {/* Segmented Bar Live Preview in Floating Card */}
+              <div
+                style={{
+                  display: 'flex',
+                  height: '14px',
+                  width: '100%',
+                  borderRadius: 'var(--radius-full)',
+                  overflow: 'hidden',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.4)',
+                }}
+              >
+                {curParties.map((pid) => (
+                  <div
+                    key={pid}
+                    style={{
+                      flex: 1,
+                      background: partiesMap.get(pid)?.color || 'var(--accent-coral)',
+                      borderRight: '1px solid rgba(0, 0, 0, 0.2)',
+                    }}
+                  />
+                ))}
+                {hoveredParty && !curParties.includes(hoveredParty.id) && (
+                  <div
+                    style={{
+                      flex: 1,
+                      background: hoveredParty.color || 'var(--accent-teal)',
+                    }}
+                  />
+                )}
               </div>
 
               <div
