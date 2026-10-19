@@ -134,3 +134,97 @@ VISA ****1234 72.01`;
   assert.deepEqual(r.adjustments.map((a) => a.kind), ['tax', 'fee']);
   assert.deepEqual(r.warnings, []);
 });
+
+test('sample scenario: party of 3 with bill of $128.00 and 6 items', () => {
+  const threeParties = [
+    { id: 'p1', name: 'Alex Rivera' },
+    { id: 'p2', name: 'Jack and Jill' },
+    { id: 'p3', name: 'Sam Taylor' },
+  ];
+
+  const sixItems = [
+    { id: 'item_1', description: 'Calamari Fritti', priceCents: 1200 }, // $12.00
+    { id: 'item_2', description: 'Truffle Tagliatelle', priceCents: 2400 }, // $24.00
+    { id: 'item_3', description: 'Ribeye Steak', priceCents: 2000 }, // $20.00
+    { id: 'item_4', description: 'Pan-Roasted Salmon', priceCents: 1800 }, // $18.00
+    { id: 'item_5', description: 'Margherita Pizza', priceCents: 1600 }, // $16.00
+    { id: 'item_6', description: 'Tiramisu', priceCents: 1000 }, // $10.00
+  ];
+
+  // Subtotal: 12 + 24 + 20 + 18 + 16 + 10 = $100.00 (10,000 cents)
+  // Tax: $8.00 (800 cents), Tip / Misc: $20.00 (2000 cents)
+  // Grand Total = $100 + $8 + $20 = $128.00 (12,800 cents)
+  const adjustments = [
+    { id: 'adj_tax', kind: 'tax', label: 'Tax', amountCents: 800 },
+    { id: 'adj_tip', kind: 'tip', label: 'Tip / Misc', amountCents: 2000 },
+  ];
+
+  // Allocations following Simple View drag-to-split behavior:
+  // Item 1 (Calamari $12): Split 3 ways (Alex, Jack and Jill, Sam) -> $4.00 each
+  // Item 2 (Pasta $24): Alex (100% -> $24.00)
+  // Item 3 (Steak $20): Jack and Jill (100% -> $20.00)
+  // Item 4 (Salmon $18): Sam (100% -> $18.00)
+  // Item 5 (Pizza $16): Split 2 ways (Alex & Jack and Jill) -> $8.00 each
+  // Item 6 (Tiramisu $10): Split 2 ways (Jack and Jill & Sam) -> $5.00 each
+  const allocations = [
+    { id: 'a1_1', partyId: 'p1', itemId: 'item_1', mode: 'share', value: 1 },
+    { id: 'a1_2', partyId: 'p2', itemId: 'item_1', mode: 'share', value: 1 },
+    { id: 'a1_3', partyId: 'p3', itemId: 'item_1', mode: 'share', value: 1 },
+
+    { id: 'a2_1', partyId: 'p1', itemId: 'item_2', mode: 'share', value: 1 },
+
+    { id: 'a3_1', partyId: 'p2', itemId: 'item_3', mode: 'share', value: 1 },
+
+    { id: 'a4_1', partyId: 'p3', itemId: 'item_4', mode: 'share', value: 1 },
+
+    { id: 'a5_1', partyId: 'p1', itemId: 'item_5', mode: 'share', value: 1 },
+    { id: 'a5_2', partyId: 'p2', itemId: 'item_5', mode: 'share', value: 1 },
+
+    { id: 'a6_1', partyId: 'p2', itemId: 'item_6', mode: 'share', value: 1 },
+    { id: 'a6_2', partyId: 'p3', itemId: 'item_6', mode: 'share', value: 1 },
+  ];
+
+  const split = computeSplit({
+    items: sixItems,
+    adjustments,
+    parties: threeParties,
+    allocations,
+  });
+
+  // Check 6 items & $128.00 grand total
+  assert.equal(sixItems.length, 6);
+  assert.equal(threeParties.length, 3);
+  assert.equal(split.totalCents, 12800); // Exactly $128.00
+  assert.equal(split.subtotalCents, 10000); // $100.00
+  assert.equal(split.unassignedCents, 0); // All items assigned
+  assert.equal(split.isComplete, true);
+
+  // Check individual item splits:
+  // Alex: $4 + $24 + $8 = $36.00 items
+  assert.equal(split.parties.p1.itemsCents, 3600);
+  // Proportional tax ($8.00) & tip ($20.00) = $28.00 total extras. Alex = 36% of 2800 = 1008 ($10.08)
+  assert.equal(split.parties.p1.extrasCents, 1008);
+  assert.equal(split.parties.p1.totalCents, 4608); // $46.08
+
+  // Jack and Jill: $4 + $20 + $8 + $5 = $37.00 items
+  assert.equal(split.parties.p2.itemsCents, 3700);
+  // 37% of 2800 = 1036 ($10.36)
+  assert.equal(split.parties.p2.extrasCents, 1036);
+  assert.equal(split.parties.p2.totalCents, 4736); // $47.36
+
+  // Sam: $4 + $18 + $5 = $27.00 items
+  assert.equal(split.parties.p3.itemsCents, 2700);
+  // 27% of 2800 = 756 ($7.56)
+  assert.equal(split.parties.p3.extrasCents, 756);
+  assert.equal(split.parties.p3.totalCents, 3456); // $34.56
+
+  // Verify penny-perfect conservation: 4608 + 4736 + 3456 = 12800 ($128.00)
+  const sumParties = Object.values(split.parties).reduce((sum, p) => sum + p.totalCents, 0);
+  assert.equal(sumParties, 12800);
+
+  // Status transitions
+  assert.equal(deriveStatus(split, threeParties), 'complete');
+  const allPaid = threeParties.map((p) => ({ ...p, paidAt: new Date().toISOString() }));
+  assert.equal(deriveStatus(split, allPaid), 'closed');
+});
+

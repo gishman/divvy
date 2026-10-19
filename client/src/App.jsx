@@ -19,34 +19,46 @@ import { SimpleView } from './components/SimpleView';
 import { PaymentModal } from './components/PaymentModal';
 import { Toast } from './components/Toast';
 
-// Rich fallback demo divvy with 2 default paying parties (including "Jack and Jill" paying as 1)
+// Rich fallback demo divvy with party of 3, 6 items, and a bill for $128.00
 const DEMO_DIVVY = {
   id: 'demo-divvy-1',
   title: 'Dinner at Osteria Del Mare',
   merchant: 'Osteria Del Mare',
   receiptDate: new Date().toISOString().slice(0, 10),
-  status: 'open',
+  status: 'complete',
   items: [
-    { id: 'item_1', description: 'Woodfired Truffle Pizza', quantity: 1, priceCents: 2800 },
-    { id: 'item_2', description: 'Handmade Tagliatelle Ragu', quantity: 1, priceCents: 2600 },
-    { id: 'item_3', description: 'Pan-Seared Branzino', quantity: 1, priceCents: 3400 },
-    { id: 'item_4', description: 'Burrata Caprese & Focaccia', quantity: 1, priceCents: 1800 },
-    { id: 'item_5', description: 'Espresso Martinis (x4)', quantity: 4, priceCents: 4800 },
-    { id: 'item_6', description: 'Tiramisu Della Casa', quantity: 2, priceCents: 1600 },
+    { id: 'item_1', description: 'Calamari Fritti', quantity: 1, priceCents: 1200 },
+    { id: 'item_2', description: 'Truffle Tagliatelle', quantity: 1, priceCents: 2400 },
+    { id: 'item_3', description: 'Ribeye Steak', quantity: 1, priceCents: 2000 },
+    { id: 'item_4', description: 'Pan-Roasted Salmon', quantity: 1, priceCents: 1800 },
+    { id: 'item_5', description: 'Margherita Pizza', quantity: 1, priceCents: 1600 },
+    { id: 'item_6', description: 'Tiramisu Della Casa', quantity: 1, priceCents: 1000 },
   ],
   adjustments: [
-    { id: 'adj_tax', kind: 'tax', label: 'Tax', amountCents: 1510 },
-    { id: 'adj_tip', kind: 'tip', label: 'Tip / Misc', amountCents: 3400 },
+    { id: 'adj_tax', kind: 'tax', label: 'Tax', amountCents: 800 },
+    { id: 'adj_tip', kind: 'tip', label: 'Tip / Misc', amountCents: 2000 },
   ],
   parties: [
     { id: 'party_1', contactId: 'user_1', name: 'Alex Rivera', email: 'alex@example.com', phone: '', color: '#f26b5b', paidAt: null },
-    { id: 'party_2', contactId: 'user_2', name: 'Jack and Jill', email: '', phone: '', color: '#3cc6b0', paidAt: null },
+    { id: 'party_2', contactId: 'user_2', name: 'Jack and Jill', email: '', phone: '(555) 321-7654', color: '#3cc6b0', paidAt: null },
+    { id: 'party_3', contactId: 'user_3', name: 'Sam Taylor', email: 'sam@example.com', phone: '', color: '#f5b04c', paidAt: null },
   ],
   allocations: [
-    { id: 'alloc_1', partyId: 'party_1', itemId: 'item_1', mode: 'share', value: 1 },
-    { id: 'alloc_2', partyId: 'party_2', itemId: 'item_3', mode: 'share', value: 1 },
-    { id: 'alloc_3', partyId: 'party_1', itemId: 'item_4', mode: 'share', value: 1 },
-    { id: 'alloc_4', partyId: 'party_2', itemId: 'item_4', mode: 'share', value: 1 },
+    { id: 'alloc_1a', partyId: 'party_1', itemId: 'item_1', mode: 'share', value: 1 },
+    { id: 'alloc_1b', partyId: 'party_2', itemId: 'item_1', mode: 'share', value: 1 },
+    { id: 'alloc_1c', partyId: 'party_3', itemId: 'item_1', mode: 'share', value: 1 },
+
+    { id: 'alloc_2a', partyId: 'party_1', itemId: 'item_2', mode: 'share', value: 1 },
+
+    { id: 'alloc_3a', partyId: 'party_2', itemId: 'item_3', mode: 'share', value: 1 },
+
+    { id: 'alloc_4a', partyId: 'party_3', itemId: 'item_4', mode: 'share', value: 1 },
+
+    { id: 'alloc_5a', partyId: 'party_1', itemId: 'item_5', mode: 'share', value: 1 },
+    { id: 'alloc_5b', partyId: 'party_2', itemId: 'item_5', mode: 'share', value: 1 },
+
+    { id: 'alloc_6a', partyId: 'party_2', itemId: 'item_6', mode: 'share', value: 1 },
+    { id: 'alloc_6b', partyId: 'party_3', itemId: 'item_6', mode: 'share', value: 1 },
   ],
 };
 
