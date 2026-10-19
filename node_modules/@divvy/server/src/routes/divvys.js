@@ -4,7 +4,10 @@
  * fresh document to everyone viewing it (Socket.IO).
  */
 import { Router } from 'express';
-import { computeSplit, checkAllocations, computeReceiptTotals, validateContact, ALLOCATION_MODES } from '@divvy/shared';
+import {
+  computeSplit, checkAllocations, computeReceiptTotals, validateContact,
+  isValidEmail, isValidPhone, normalizeEmail, normalizePhone, contactKey, ALLOCATION_MODES,
+} from '@divvy/shared';
 import { query, tx } from '../db.js';
 import { HttpError } from '../auth.js';
 import {
@@ -112,6 +115,8 @@ router.post('/', async (req, res) => {
     const divvyId = rows[0].id;
     await saveReceipt(db, divvyId, receipt);
     await addParty(db, divvyId, req.userId, req.userId);
+    const { row: secondContact } = await findOrCreateContact(db, { name: 'Party 2' }, req.userId);
+    await addParty(db, divvyId, secondContact.id, req.userId);
     await refreshDivvy(db, divvyId);
     return divvyId;
   });
@@ -172,13 +177,18 @@ router.post('/:id/parties', (req, res) => mutate(req, res, async (db, id) => {
     ({ rows: [contact] } = await db.query('SELECT * FROM contacts WHERE id = $1', [contactId]));
     if (!contact) throw new HttpError(404, 'Contact not found');
   } else {
-    const errors = validateContact({ name, email, phone });
+    const errors = {};
+    if (!name || !String(name).trim()) errors.name = 'Name is required';
+    const hasEmail = !!(email && String(email).trim());
+    const hasPhone = !!(phone && String(phone).trim());
+    if (hasEmail && !isValidEmail(email)) errors.email = 'Enter a valid email';
+    if (hasPhone && !isValidPhone(phone)) errors.phone = 'Enter a valid phone number';
     if (Object.keys(errors).length) throw new HttpError(400, 'Please fix the highlighted fields', { fields: errors });
     ({ row: contact } = await findOrCreateContact(db, { name, email, phone }, req.userId));
   }
   const { created } = await addParty(db, id, contact.id, req.userId);
   if (!created) throw new HttpError(409, `${contact.name} is already on this divvy`);
-  await linkContact(db, req.userId, contact.id);
+  if (email || phone) await linkContact(db, req.userId, contact.id);
   // Members see the shared divvy immediately.
   if (contact.verified_at) emitToUser(contact.id, 'divvy:invited', { divvyId: id });
 }, { reason: 'party-added', status: 201 }));
@@ -192,23 +202,48 @@ router.delete('/:id/parties/:partyId', (req, res) => mutate(req, res, async (db,
 }, { reason: 'party-removed' }));
 
 router.patch('/:id/parties/:partyId', (req, res) => mutate(req, res, async (db, id) => {
-  const paid = !!req.body?.paid;
-  const { rowCount } = await db.query(
-    `UPDATE divvy_parties SET paid_at = ${paid ? 'now()' : 'NULL'} WHERE id = $1 AND divvy_id = $2`,
-    [req.params.partyId, id],
-  );
-  if (!rowCount) throw new HttpError(404, 'Party not found');
-}, { reason: 'paid' }));
+  const { rows: [party] } = await db.query('SELECT * FROM divvy_parties WHERE id = $1 AND divvy_id = $2', [req.params.partyId, id]);
+  if (!party) throw new HttpError(404, 'Party not found');
+
+  if (req.body?.paid !== undefined) {
+    const paid = !!req.body.paid;
+    await db.query(
+      `UPDATE divvy_parties SET paid_at = ${paid ? 'now()' : 'NULL'} WHERE id = $1 AND divvy_id = $2`,
+      [req.params.partyId, id],
+    );
+  }
+
+  if (req.body?.name !== undefined || req.body?.email !== undefined || req.body?.phone !== undefined) {
+    const { rows: [curContact] } = await db.query('SELECT * FROM contacts WHERE id = $1', [party.contact_id]);
+    if (curContact) {
+      const nextName = req.body.name !== undefined ? String(req.body.name || '').trim() || curContact.name : curContact.name;
+      const curIsGuest = curContact.email && String(curContact.email).endsWith('@guest.divvy.local');
+      const nextEmailRaw = req.body.email !== undefined ? req.body.email : (curIsGuest ? null : curContact.email);
+      const nextPhoneRaw = req.body.phone !== undefined ? req.body.phone : curContact.phone;
+      const e = normalizeEmail(nextEmailRaw) || null;
+      const p = normalizePhone(nextPhoneRaw) || null;
+      const finalEmail = e || (p ? null : (curIsGuest ? curContact.email : `guest-${party.contact_id}@guest.divvy.local`));
+      const nextKey = contactKey({ email: finalEmail, phone: p });
+
+      await db.query(
+        `UPDATE contacts SET name = $2, email = $3, phone = $4, contact_key = $5, updated_at = now() WHERE id = $1`,
+        [curContact.id, nextName, finalEmail, p, nextKey],
+      );
+    }
+  }
+}, { reason: 'party-updated' }));
 
 // ------------------------------------------------------------------ allocations
 
 /**
  * Add allocations. Each (party, item) pair — or (party, remaining pool) — holds
  * at most one allocation, so re-assigning replaces the previous one.
+ * Also supports `replaceItemId` to atomically replace all allocations for an item.
  */
 router.post('/:id/allocations', (req, res) => mutate(req, res, async (db, id) => {
   const incoming = Array.isArray(req.body?.allocations) ? req.body.allocations.slice(0, 200) : [];
-  if (!incoming.length) throw new HttpError(400, 'Nothing to assign');
+  const replaceItemId = req.body?.replaceItemId || null;
+  if (!incoming.length && !replaceItemId) throw new HttpError(400, 'Nothing to assign');
   const divvy = await loadDivvy(id, db);
   const partyIds = new Set(divvy.parties.map((p) => p.id));
   const itemIds = new Set(divvy.items.map((i) => i.id));
@@ -220,6 +255,17 @@ router.post('/:id/allocations', (req, res) => mutate(req, res, async (db, id) =>
     const value = a.mode === 'amount' ? Math.round(Number(a.value)) : Number(a.value);
     return { partyId: a.partyId, itemId: a.itemId || null, mode: a.mode, value };
   });
+
+  if (replaceItemId) {
+    await db.query('DELETE FROM allocations WHERE divvy_id = $1 AND item_id = $2', [id, replaceItemId]);
+    for (const a of clean) {
+      await db.query(
+        'INSERT INTO allocations (divvy_id, party_id, item_id, mode, value, created_by) VALUES ($1,$2,$3,$4,$5,$6)',
+        [id, a.partyId, a.itemId, a.mode, a.value, req.userId],
+      );
+    }
+    return;
+  }
 
   const replacedKey = (a) => `${a.partyId}:${a.itemId || 'pool'}`;
   const replacing = new Set(clean.map(replacedKey));

@@ -10,13 +10,22 @@ import { HttpError } from './auth.js';
 
 // ---------------------------------------------------------------- contacts
 
+import crypto from 'node:crypto';
+
+const GUEST_EMAIL_SUFFIX = '@guest.divvy.local';
+
+function cleanGuestEmail(email) {
+  if (!email || String(email).endsWith(GUEST_EMAIL_SUFFIX)) return null;
+  return email;
+}
+
 export function toContact(row, { nickname } = {}) {
   if (!row) return null;
   return {
     id: row.id,
     name: row.name,
     nickname: nickname ?? row.nickname ?? null,
-    email: row.email,
+    email: cleanGuestEmail(row.email),
     phone: row.phone,
     isMember: !!row.verified_at,
     emailVerified: row.email_verified,
@@ -32,7 +41,8 @@ export async function getContact(id, db = pool) {
 
 /** Find a contact by its unique (phone|email) key, or create a non-member contact. */
 export async function findOrCreateContact(db, { name, email, phone }, createdBy = null) {
-  const e = normalizeEmail(email) || null;
+  const cleanEmail = cleanGuestEmail(email);
+  const e = normalizeEmail(cleanEmail) || (normalizePhone(phone) ? null : `guest-${crypto.randomUUID()}${GUEST_EMAIL_SUFFIX}`);
   const p = normalizePhone(phone) || null;
   const key = contactKey({ email: e, phone: p });
   const existing = await db.query('SELECT * FROM contacts WHERE contact_key = $1', [key]);
@@ -106,7 +116,7 @@ export async function loadDivvys(ids, db = pool) {
       id: r.id,
       contactId: r.contact_id,
       name: r.name,
-      email: r.email,
+      email: cleanGuestEmail(r.email),
       phone: r.phone,
       isMember: !!r.verified_at,
       color: r.color,

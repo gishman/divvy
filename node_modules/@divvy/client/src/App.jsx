@@ -19,7 +19,7 @@ import { SimpleView } from './components/SimpleView';
 import { PaymentModal } from './components/PaymentModal';
 import { Toast } from './components/Toast';
 
-// Rich fallback demo divvy matching notes.md spec (4 parties: P1 & P4 pay items, P2 & P3 split remainder)
+// Rich fallback demo divvy with 2 default paying parties (including "Jack and Jill" paying as 1)
 const DEMO_DIVVY = {
   id: 'demo-divvy-1',
   title: 'Dinner at Osteria Del Mare',
@@ -35,21 +35,18 @@ const DEMO_DIVVY = {
     { id: 'item_6', description: 'Tiramisu Della Casa', quantity: 2, priceCents: 1600 },
   ],
   adjustments: [
-    { id: 'adj_tax', kind: 'tax', label: 'Sales Tax (8.875%)', amountCents: 1510 },
-    { id: 'adj_tip', kind: 'tip', label: 'Tip (20%)', amountCents: 3400 },
+    { id: 'adj_tax', kind: 'tax', label: 'Tax', amountCents: 1510 },
+    { id: 'adj_tip', kind: 'tip', label: 'Tip / Misc', amountCents: 3400 },
   ],
   parties: [
-    { id: 'party_1', contactId: 'user_1', name: 'Alex Rivera', color: '#f26b5b', paidAt: null },
-    { id: 'party_2', contactId: 'user_2', name: 'Sam Chen', color: '#f5b04c', paidAt: null },
-    { id: 'party_3', contactId: 'user_3', name: 'Morgan Vance', color: '#3cc6b0', paidAt: null },
-    { id: 'party_4', contactId: 'user_4', name: 'Taylor Brooks', color: '#a78bfa', paidAt: null },
+    { id: 'party_1', contactId: 'user_1', name: 'Alex Rivera', email: 'alex@example.com', phone: '', color: '#f26b5b', paidAt: null },
+    { id: 'party_2', contactId: 'user_2', name: 'Jack and Jill', email: '', phone: '', color: '#3cc6b0', paidAt: null },
   ],
   allocations: [
-    // Spec example: P1 pays item 1 (Pizza) & item 4 (Burrata)
-    { id: 'alloc_1', partyId: 'party_1', itemId: 'item_1', mode: 'percent', value: 100 },
-    { id: 'alloc_2', partyId: 'party_1', itemId: 'item_4', mode: 'percent', value: 100 },
-    // P4 pays item 3 (Branzino)
-    { id: 'alloc_3', partyId: 'party_4', itemId: 'item_3', mode: 'percent', value: 100 },
+    { id: 'alloc_1', partyId: 'party_1', itemId: 'item_1', mode: 'share', value: 1 },
+    { id: 'alloc_2', partyId: 'party_2', itemId: 'item_3', mode: 'share', value: 1 },
+    { id: 'alloc_3', partyId: 'party_1', itemId: 'item_4', mode: 'share', value: 1 },
+    { id: 'alloc_4', partyId: 'party_2', itemId: 'item_4', mode: 'share', value: 1 },
   ],
 };
 
@@ -63,7 +60,7 @@ const DEMO_USER = {
 export default function App() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('divvy'); // 'divvy', 'history', 'contacts', 'awards'
-  const [viewMode, setViewMode] = useState('workbench'); // 'workbench' | 'simple'
+  const [viewMode, setViewMode] = useState('simple'); // 'simple' | 'workbench' (Advanced/Detailed)
   const [divvysList, setDivvysList] = useState([]);
   const [currentDivvy, setCurrentDivvy] = useState(DEMO_DIVVY);
   const [viewers, setViewers] = useState([]);
@@ -245,40 +242,40 @@ export default function App() {
   };
 
   // ------------------------------------------------------------- Mutations
-  const handleUpdateReceipt = async ({ items, adjustments }) => {
+  const handleUpdateReceipt = async ({ title, merchant, items, adjustments }) => {
     const nextReceipt = {
-      title: currentDivvy.title,
-      merchant: currentDivvy.merchant,
+      title: title ?? currentDivvy.title,
+      merchant: merchant ?? currentDivvy.merchant,
       receiptDate: currentDivvy.receiptDate,
       items: items ?? currentDivvy.items,
       adjustments: adjustments ?? currentDivvy.adjustments,
     };
 
-    if (currentDivvy.id === DEMO_DIVVY.id) {
-      setCurrentDivvy({ ...currentDivvy, ...nextReceipt });
-      addToast('Receipt updated', 'success');
+    // Optimistically update local state immediately for smooth inline editing
+    setCurrentDivvy((prev) => ({ ...prev, ...nextReceipt }));
+
+    if (currentDivvy.id === DEMO_DIVVY.id || String(currentDivvy.id).startsWith('divvy_')) {
       return;
     }
 
     try {
       const res = await api.divvys.updateReceipt(currentDivvy.id, nextReceipt);
       setCurrentDivvy(res.divvy);
-      addToast('Receipt updated', 'success');
     } catch (err) {
       addToast(err.message || 'Update failed', 'error');
     }
   };
 
   const handleAddAllocations = async (allocations) => {
-    if (currentDivvy.id === DEMO_DIVVY.id) {
+    if (currentDivvy.id === DEMO_DIVVY.id || String(currentDivvy.id).startsWith('divvy_')) {
       const newAllocs = allocations.map((a, idx) => ({
         id: `alloc_${Date.now()}_${idx}`,
         ...a,
       }));
-      setCurrentDivvy({
-        ...currentDivvy,
-        allocations: [...currentDivvy.allocations, ...newAllocs],
-      });
+      setCurrentDivvy((prev) => ({
+        ...prev,
+        allocations: [...prev.allocations, ...newAllocs],
+      }));
       clearSelection();
       addToast('Split assigned!', 'success');
       return;
@@ -294,12 +291,58 @@ export default function App() {
     }
   };
 
-  const handleDeleteAllocation = async (allocId) => {
-    if (currentDivvy.id === DEMO_DIVVY.id) {
-      setCurrentDivvy({
-        ...currentDivvy,
-        allocations: currentDivvy.allocations.filter((a) => a.id !== allocId),
+  const handleSetItemParties = async (itemId, partyIds) => {
+    const nextItemAllocs = partyIds.map((partyId, idx) => ({
+      id: `alloc_${itemId}_${partyId}_${Date.now()}_${idx}`,
+      partyId,
+      itemId,
+      mode: 'share',
+      value: 1,
+    }));
+
+    setCurrentDivvy((prev) => ({
+      ...prev,
+      allocations: [
+        ...(prev.allocations || []).filter((a) => a.itemId !== itemId),
+        ...nextItemAllocs,
+      ],
+    }));
+
+    if (currentDivvy.id === DEMO_DIVVY.id || String(currentDivvy.id).startsWith('divvy_')) {
+      return;
+    }
+
+    try {
+      const res = await api.divvys.addAllocations(currentDivvy.id, nextItemAllocs, {
+        replaceItemId: itemId,
       });
+      setCurrentDivvy(res.divvy);
+    } catch (err) {
+      addToast(err.message || 'Could not update split', 'error');
+    }
+  };
+
+  const handleClearAllAllocations = async () => {
+    setCurrentDivvy((prev) => ({ ...prev, allocations: [] }));
+    if (currentDivvy.id === DEMO_DIVVY.id || String(currentDivvy.id).startsWith('divvy_')) {
+      addToast('All splits reset', 'info');
+      return;
+    }
+    try {
+      const res = await api.divvys.clearAllocations(currentDivvy.id, { all: true });
+      setCurrentDivvy(res.divvy);
+      addToast('All splits reset', 'info');
+    } catch (err) {
+      addToast(err.message || 'Could not reset splits', 'error');
+    }
+  };
+
+  const handleDeleteAllocation = async (allocId) => {
+    if (currentDivvy.id === DEMO_DIVVY.id || String(currentDivvy.id).startsWith('divvy_')) {
+      setCurrentDivvy((prev) => ({
+        ...prev,
+        allocations: prev.allocations.filter((a) => a.id !== allocId),
+      }));
       addToast('Assignment removed', 'info');
       return;
     }
@@ -314,36 +357,53 @@ export default function App() {
   };
 
   const handleAddParty = async ({ contactId, name, email, phone, color }) => {
-    if (currentDivvy.id === DEMO_DIVVY.id) {
+    if (currentDivvy.id === DEMO_DIVVY.id || String(currentDivvy.id).startsWith('divvy_')) {
       const newParty = {
-        id: `party_${Date.now()}`,
+        id: `party_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         contactId: contactId || `user_${Date.now()}`,
-        name: name || 'New Guest',
-        email,
-        phone,
-        color: color || PARTY_COLORS[currentDivvy.parties.length % PARTY_COLORS.length],
+        name: name || `Party ${(currentDivvy.parties?.length || 0) + 1}`,
+        email: email || '',
+        phone: phone || '',
+        color: color || PARTY_COLORS[(currentDivvy.parties?.length || 0) % PARTY_COLORS.length],
         paidAt: null,
       };
-      setCurrentDivvy({
-        ...currentDivvy,
-        parties: [...currentDivvy.parties, newParty],
-      });
-      addToast(`Added ${name} to table`, 'success');
+      setCurrentDivvy((prev) => ({
+        ...prev,
+        parties: [...prev.parties, newParty],
+      }));
       return;
     }
 
     try {
       const res = await api.divvys.addParty(currentDivvy.id, {
         contactId,
-        name,
+        name: name || `Party ${(currentDivvy.parties?.length || 0) + 1}`,
         email,
         phone,
         color,
       });
       setCurrentDivvy(res.divvy);
-      addToast(`Added ${name} to table`, 'success');
     } catch (err) {
       addToast(err.message || 'Could not add party', 'error');
+    }
+  };
+
+  const handleUpdateParty = async (partyId, patch) => {
+    setCurrentDivvy((prev) => ({
+      ...prev,
+      parties: prev.parties.map((p) => (p.id === partyId ? { ...p, ...patch } : p)),
+    }));
+
+    if (currentDivvy.id === DEMO_DIVVY.id || String(currentDivvy.id).startsWith('divvy_')) {
+      return;
+    }
+
+    try {
+      const res = await api.divvys.updateParty(currentDivvy.id, partyId, patch);
+      setCurrentDivvy(res.divvy);
+    } catch (err) {
+      // Keep optimistic state if typing in progress
+      console.warn('Party update error:', err.message);
     }
   };
 
@@ -352,33 +412,78 @@ export default function App() {
       addToast('A divvy must have at least one party', 'error');
       return;
     }
-    if (currentDivvy.id === DEMO_DIVVY.id) {
-      setCurrentDivvy({
-        ...currentDivvy,
-        parties: currentDivvy.parties.filter((p) => p.id !== partyId),
-        allocations: currentDivvy.allocations.filter((a) => a.partyId !== partyId),
-      });
-      addToast('Party removed', 'info');
+    if (currentDivvy.id === DEMO_DIVVY.id || String(currentDivvy.id).startsWith('divvy_')) {
+      setCurrentDivvy((prev) => ({
+        ...prev,
+        parties: prev.parties.filter((p) => p.id !== partyId),
+        allocations: prev.allocations.filter((a) => a.partyId !== partyId),
+      }));
       return;
     }
 
     try {
       const res = await api.divvys.removeParty(currentDivvy.id, partyId);
       setCurrentDivvy(res.divvy);
-      addToast('Party removed', 'info');
     } catch (err) {
       addToast(err.message || 'Could not remove party', 'error');
     }
   };
 
+  const handleSetPartyCount = async (targetCount) => {
+    const count = Math.max(1, Math.min(20, Math.round(Number(targetCount) || 1)));
+    const curLen = currentDivvy.parties.length;
+    if (count === curLen) return;
+
+    if (count > curLen) {
+      const toAddCount = count - curLen;
+      if (currentDivvy.id === DEMO_DIVVY.id || String(currentDivvy.id).startsWith('divvy_')) {
+        const added = Array.from({ length: toAddCount }, (_, i) => {
+          const idx = curLen + i;
+          return {
+            id: `party_${Date.now()}_${idx}`,
+            contactId: `user_${Date.now()}_${idx}`,
+            name: `Party ${idx + 1}`,
+            email: '',
+            phone: '',
+            color: PARTY_COLORS[idx % PARTY_COLORS.length],
+            paidAt: null,
+          };
+        });
+        setCurrentDivvy((prev) => ({
+          ...prev,
+          parties: [...prev.parties, ...added],
+        }));
+        return;
+      }
+      for (let i = 0; i < toAddCount; i++) {
+        await handleAddParty({ name: `Party ${curLen + i + 1}` });
+      }
+    } else {
+      // Remove from the end
+      const toRemove = currentDivvy.parties.slice(count);
+      if (currentDivvy.id === DEMO_DIVVY.id || String(currentDivvy.id).startsWith('divvy_')) {
+        const removeIds = new Set(toRemove.map((p) => p.id));
+        setCurrentDivvy((prev) => ({
+          ...prev,
+          parties: prev.parties.filter((p) => !removeIds.has(p.id)),
+          allocations: prev.allocations.filter((a) => !removeIds.has(a.partyId)),
+        }));
+        return;
+      }
+      for (const p of toRemove.reverse()) {
+        await handleRemoveParty(p.id);
+      }
+    }
+  };
+
   const handleTogglePaid = async (partyId, isPaid) => {
-    if (currentDivvy.id === DEMO_DIVVY.id) {
-      setCurrentDivvy({
-        ...currentDivvy,
-        parties: currentDivvy.parties.map((p) =>
+    if (currentDivvy.id === DEMO_DIVVY.id || String(currentDivvy.id).startsWith('divvy_')) {
+      setCurrentDivvy((prev) => ({
+        ...prev,
+        parties: prev.parties.map((p) =>
           p.id === partyId ? { ...p, paidAt: isPaid ? new Date().toISOString() : null, paid: isPaid } : p
         ),
-      });
+      }));
       addToast(isPaid ? 'Marked as paid ✓' : 'Marked unpaid', 'info');
       return;
     }
@@ -402,8 +507,26 @@ export default function App() {
         status: 'open',
         items: payload.items || [],
         adjustments: payload.adjustments || [],
+        // Default 2 paying parties per spec
         parties: [
-          { id: 'party_me', contactId: user?.id || 'user_1', name: user?.name || 'Me', color: PARTY_COLORS[0], paidAt: null },
+          {
+            id: 'party_1',
+            contactId: user?.id || 'user_1',
+            name: user?.name || 'Party 1',
+            email: user?.email || '',
+            phone: user?.phone || '',
+            color: PARTY_COLORS[0],
+            paidAt: null,
+          },
+          {
+            id: 'party_2',
+            contactId: 'user_2',
+            name: 'Party 2',
+            email: '',
+            phone: '',
+            color: PARTY_COLORS[1],
+            paidAt: null,
+          },
         ],
         allocations: [],
       };
@@ -502,7 +625,7 @@ export default function App() {
               </div>
             )}
 
-            {/* View Mode Toggle: Workbench vs Simple View */}
+            {/* View Mode Toggle: Simple vs Advanced / Detailed */}
             <div
               className="view-mode-toggle"
               style={{
@@ -518,21 +641,21 @@ export default function App() {
             >
               <button
                 type="button"
-                className={`btn btn-sm ${viewMode === 'workbench' ? 'btn-primary' : 'btn-ghost'}`}
-                style={{ borderRadius: 'var(--radius-full)', padding: '5px 14px', fontSize: '12px' }}
-                onClick={() => setViewMode('workbench')}
-                title="Full workbench with 360° orbital wheel meter"
-              >
-                📊 Workbench
-              </button>
-              <button
-                type="button"
                 className={`btn btn-sm ${viewMode === 'simple' ? 'btn-primary' : 'btn-ghost'}`}
                 style={{ borderRadius: 'var(--radius-full)', padding: '5px 14px', fontSize: '12px' }}
                 onClick={() => setViewMode('simple')}
-                title="Simple view: receipt, party members, and all items completed below"
+                title="Simple 3-step interface: Receipt → Parties → Drag & Drop Split"
               >
-                📄 Simple View
+                ✨ Simple
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${viewMode === 'workbench' ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: 'var(--radius-full)', padding: '5px 14px', fontSize: '12px' }}
+                onClick={() => setViewMode('workbench')}
+                title="Advanced / Detailed workbench with 360° orbital wheel meter"
+              >
+                📊 Advanced / Detailed
               </button>
             </div>
 
@@ -556,18 +679,20 @@ export default function App() {
         {/* Content Body */}
         <main className="content-body">
           {viewMode === 'simple' ? (
-            /* Simple View: Receipt, Party Members, and below All Items Completed */
+            /* 3-Step Simple Interface: Receipt -> Parties -> Drag & Drop Split */
             <SimpleView
               divvy={currentDivvy}
               split={split}
               currentUser={user}
-              onAssignItem={handleItemClick}
-              onSelectPartyForRemainder={handlePartyClick}
               onTogglePaid={handleTogglePaid}
               onOpenPayment={handleOpenPayment}
-              onOpenAddParty={() => setAddPartyModalOpen(true)}
+              onAddParty={handleAddParty}
+              onUpdateParty={handleUpdateParty}
               onRemoveParty={handleRemoveParty}
+              onSetPartyCount={handleSetPartyCount}
               onUpdateReceipt={handleUpdateReceipt}
+              onSetItemParties={handleSetItemParties}
+              onClearAllAllocations={handleClearAllAllocations}
             />
           ) : (
             <>

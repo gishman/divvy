@@ -69,9 +69,11 @@ export const api = {
     delete: (id) => request(`/api/divvys/${id}`, { method: 'DELETE' }),
     updateReceipt: (id, payload) => request(`/api/divvys/${id}/receipt`, { method: 'PUT', body: payload }),
     addParty: (id, payload) => request(`/api/divvys/${id}/parties`, { method: 'POST', body: payload }),
+    updateParty: (id, partyId, payload) => request(`/api/divvys/${id}/parties/${partyId}`, { method: 'PATCH', body: payload }),
     removeParty: (id, partyId) => request(`/api/divvys/${id}/parties/${partyId}`, { method: 'DELETE' }),
     setPaid: (id, partyId, paid) => request(`/api/divvys/${id}/parties/${partyId}`, { method: 'PATCH', body: { paid } }),
-    addAllocations: (id, allocations) => request(`/api/divvys/${id}/allocations`, { method: 'POST', body: { allocations } }),
+    addAllocations: (id, allocations, extra = {}) =>
+      request(`/api/divvys/${id}/allocations`, { method: 'POST', body: { allocations, ...extra } }),
     deleteAllocation: (id, allocId) => request(`/api/divvys/${id}/allocations/${allocId}`, { method: 'DELETE' }),
     clearAllocations: (id, payload) => request(`/api/divvys/${id}/allocations/clear`, { method: 'POST', body: payload }),
   },
